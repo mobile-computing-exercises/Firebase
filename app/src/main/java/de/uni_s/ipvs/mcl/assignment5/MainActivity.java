@@ -24,6 +24,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.ContactsContract;
 import android.util.Log;
+import android.webkit.DateSorter;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -57,6 +58,7 @@ public class MainActivity extends AppCompatActivity {
     List<BluetoothGattCharacteristic> bufferList = new ArrayList<BluetoothGattCharacteristic>();
     // Sensor values
     private float tempValue, humValue;
+    private String location = "Stuttgart";
     // Handlers
     private static final long SCAN_DELAY = 5000;
     private Handler userInterfaceUpdateHandler;
@@ -69,10 +71,14 @@ public class MainActivity extends AppCompatActivity {
     UUID tempUUID = UUID.fromString("00002A1C-0000-1000-8000-00805F9B34FB");
     UUID humUUID = UUID.fromString("00002A6F-0000-1000-8000-00805F9B34FB");
     // Firebase references
+    DatabaseReference mRef;
     private DatabaseReference uuidSubtree;
     private DatabaseReference locationSubtree;
     private DatabaseReference tempSubtree;
     private DatabaseReference humSubtree;
+    // Dateformats
+    SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
+    SimpleDateFormat timeFormat = new SimpleDateFormat("yyyy-MM-dd");
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -101,11 +107,11 @@ public class MainActivity extends AppCompatActivity {
         setUpBluetooth();
 
         // Setup Firebase-References
-        DatabaseReference mRef = FirebaseDatabase.getInstance().getReference().child("teams").child("10");
+        mRef = FirebaseDatabase.getInstance().getReference().child("teams").child("10");
         uuidSubtree = mRef.child("uuid").child("00000002-0000-0000-FDFD-FDFDFDFDFDFD");
         tempSubtree = uuidSubtree.child("00002A1C-0000-1000-8000-00805F9B34FB");
         humSubtree = uuidSubtree.child("00002A6F-0000-1000-8000-00805F9B34FB");
-        locationSubtree = mRef.child("location").child("Stuttgart");
+        locationSubtree = mRef.child("location").child(location);
 
         // Listener for Temp
         tempSubtree.addValueEventListener(new ValueEventListener() {
@@ -137,8 +143,23 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        // Listener for Temp
+        locationSubtree.addValueEventListener(new ValueEventListener() {
+            @Override
+            public void onDataChange(@NonNull DataSnapshot dataSnapshot) {
+                String outputText = getAvarageForLocation(dataSnapshot);
+                Log.i("AVERAGE", outputText);
+            }
+
+            @Override
+            public void onCancelled(DatabaseError error) {
+                // Failed to read value
+                Log.w("Database", "Failed to read value.", error.toException());
+            }
+        });
+
         // Test-Value
-        writeValueInDatabase(21.8f, "temp");
+        writeValueInDatabase(38.2f, "temp");
         writeValueInDatabase(74, "hum");
     }
 
@@ -170,10 +191,7 @@ public class MainActivity extends AppCompatActivity {
     private void writeValueInDatabase(float value, String sensor) {
         if (sensor.equals("temp")) {
             tempSubtree.child(String.valueOf(System.currentTimeMillis())).setValue(value);
-
-            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
-            String currentDate = sdf.format(new Date());
-            locationSubtree.child(currentDate).child(String.valueOf(System.currentTimeMillis())).setValue(value);
+            locationSubtree.child(dateFormat.format(new Date())).child(String.valueOf(System.currentTimeMillis())).setValue(value);
         } else {
             humSubtree.child(String.valueOf(System.currentTimeMillis())).setValue(value);
         }
@@ -191,8 +209,6 @@ public class MainActivity extends AppCompatActivity {
         String output;
         output = sensorType.equals("temp") ? "Temperature:" : "Humidity:";
         output = output + System.lineSeparator();
-        // Init date format
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
 
         // Init Database data
         List<DataSnapshot> children = new ArrayList<DataSnapshot>();
@@ -235,24 +251,49 @@ public class MainActivity extends AppCompatActivity {
 
         // Build string for output depending on the findings
         if (currentNode != null) {
-            output = output + "Last update at " + sdf.format(new Date(Long.parseLong(currentNode.getKey()))) + " with " + currentNode.getValue(Float.class) + "°C" + System.lineSeparator();
+            output = output + "Last update at " + timeFormat.format(new Date(Long.parseLong(currentNode.getKey()))) + " with " + currentNode.getValue(Float.class) + "°C" + System.lineSeparator();
         } else {
             return output + "No temperature data";
         }
 
         if (previousNode != null) {
-            output = output + "Previous update at " + sdf.format(new Date(Long.parseLong(previousNode.getKey()))) + " with " + previousNode.getValue(Float.class) + "°C" + System.lineSeparator();
+            output = output + "Previous update at " + timeFormat.format(new Date(Long.parseLong(previousNode.getKey()))) + " with " + previousNode.getValue(Float.class) + "°C" + System.lineSeparator();
         } else {
             return output;
         }
 
         if (previousNodeDiffVal != null){
-            output = output + "Previous update with different value at " + sdf.format(new Date(Long.parseLong(previousNodeDiffVal.getKey()))) + " with " + previousNodeDiffVal.getValue(Float.class) + "°C" + System.lineSeparator();
+            output = output + "Previous update wdv at " + timeFormat.format(new Date(Long.parseLong(previousNodeDiffVal.getKey()))) + " with " + previousNodeDiffVal.getValue(Float.class) + "°C" + System.lineSeparator();
         } else {
             return output;
         }
 
         return output;
+    }
+
+    /**
+     * This method calculates the average temperature of a given date at a given location.
+     *
+     * @param locationData
+     * @return
+     */
+    private String getAvarageForLocation(DataSnapshot locationData) {
+        String output = "Todays avarage temperature in '" + location + "' is ";
+        float average = 0.0f;
+
+        // Calculate avarage
+        for (DataSnapshot child : locationData.getChildren()) {
+            if (child.getKey().equals(dateFormat.format(new Date()))) {
+                for (DataSnapshot dateChild : child.getChildren()) {
+                    average += dateChild.getValue(Float.class);
+                }
+                average /= child.getChildrenCount();
+                break;
+            }
+
+        }
+
+        return output + average + "°C";
     }
 
     /**
