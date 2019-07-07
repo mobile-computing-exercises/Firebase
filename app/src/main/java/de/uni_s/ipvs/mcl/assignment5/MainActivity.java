@@ -22,6 +22,7 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.ContactsContract;
 import android.util.Log;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -36,7 +37,9 @@ import com.google.firebase.database.ValueEventListener;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
+import java.util.Iterator;
 import java.util.List;
 import java.util.UUID;
 
@@ -105,43 +108,11 @@ public class MainActivity extends AppCompatActivity {
         locationSubtree = mRef.child("location").child("Stuttgart");
 
         // Listener for Temp
-        tempSubtree.addChildEventListener(new ChildEventListener() {
-            @Override
-            public void onChildAdded(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
-                Log.i("FIREBASE", "New Key: " + dataSnapshot.getKey() + ", New Value: " + String.valueOf(dataSnapshot.getValue()));
-                String outputText = buildOutputString(dataSnapshot.getKey(),dataSnapshot.getValue(Float.class), "temp");
-                temperatureText.setText(outputText);
-            }
-
-            @Override
-            public void onChildChanged(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
-                String outputText = buildOutputString(dataSnapshot.getKey(),dataSnapshot.getValue(Float.class), "temp");
-                temperatureText.setText(outputText);
-            }
-
-            @Override
-            public void onChildRemoved(@NonNull DataSnapshot dataSnapshot) {
-
-            }
-
-            @Override
-            public void onChildMoved(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
-
-            }
-
-            public void onCancelled(DatabaseError error) {
-                // Failed to read value
-                Log.w("Database", "Failed to read value.", error.toException());
-            }
-        });
-
-        // Listener for Temp
         tempSubtree.addValueEventListener(new ValueEventListener() {
             @Override
             public void onDataChange(@NonNull DataSnapshot dataSnapshot) {
-                for (DataSnapshot child : dataSnapshot.getChildren()) {
-                    Log.i("FIREBASE", "Key: " + child.getKey() + ", Value: " + String.valueOf(child.getValue()));
-                }
+                String outputText = getLastUpdate(dataSnapshot, "temp");
+                temperatureText.setText(outputText);
             }
 
             @Override
@@ -152,29 +123,14 @@ public class MainActivity extends AppCompatActivity {
         });
 
         // Listener for Temp
-        humSubtree.addChildEventListener(new ChildEventListener() {
+        humSubtree.addValueEventListener(new ValueEventListener() {
             @Override
-            public void onChildAdded(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
-                String outputText = buildOutputString(dataSnapshot.getKey(),dataSnapshot.getValue(Float.class), "hum");
+            public void onDataChange(@NonNull DataSnapshot dataSnapshot) {
+                String outputText = getLastUpdate(dataSnapshot, "hum");
                 humidityText.setText(outputText);
             }
 
             @Override
-            public void onChildChanged(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
-                String outputText = buildOutputString(dataSnapshot.getKey(),dataSnapshot.getValue(Float.class), "hum");
-                humidityText.setText(outputText);
-            }
-
-            @Override
-            public void onChildRemoved(@NonNull DataSnapshot dataSnapshot) {
-
-            }
-
-            @Override
-            public void onChildMoved(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
-
-            }
-
             public void onCancelled(DatabaseError error) {
                 // Failed to read value
                 Log.w("Database", "Failed to read value.", error.toException());
@@ -182,8 +138,8 @@ public class MainActivity extends AppCompatActivity {
         });
 
         // Test-Value
-        writeValueInDatabase(23.2f, "temp");
-        writeValueInDatabase(89, "hum");
+        writeValueInDatabase(21.8f, "temp");
+        writeValueInDatabase(74, "hum");
     }
 
     /**
@@ -204,9 +160,17 @@ public class MainActivity extends AppCompatActivity {
         humidityBar.setProgress(((int) humValue));
     }
 
+    /**
+     * This method writes the new values from a sensor to appropriate nodes inside the database.
+     * Currently only the temperature is stored inside the location node.
+     *
+     * @param value
+     * @param sensor
+     */
     private void writeValueInDatabase(float value, String sensor) {
         if (sensor.equals("temp")) {
             tempSubtree.child(String.valueOf(System.currentTimeMillis())).setValue(value);
+
             SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
             String currentDate = sdf.format(new Date());
             locationSubtree.child(currentDate).child(String.valueOf(System.currentTimeMillis())).setValue(value);
@@ -215,13 +179,80 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private String buildOutputString(String key, float value, String sensor) {
+    /**
+     * This method returns the string that should be output to the gui.
+     * This output includes the newest and previous values from any of the two sensors.
+     * @param parentNode
+     * @param sensorType
+     * @return
+     */
+    private String getLastUpdate(DataSnapshot parentNode, String sensorType) {
+        // Build output depending on sensor
+        String output;
+        output = sensorType.equals("temp") ? "Temperature:" : "Humidity:";
+        output = output + System.lineSeparator();
+        // Init date format
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
-        Date date = new Date(Long.parseLong(key));
-        if (sensor.equals("temp")) {
-            return "Temperature:" + System.lineSeparator() + "Last update at " + sdf.format(date) + " with " + value + "°C";
+
+        // Init Database data
+        List<DataSnapshot> children = new ArrayList<DataSnapshot>();
+        DataSnapshot currentNode = null;
+        DataSnapshot previousNode = null;
+        DataSnapshot previousNodeDiffVal = null;
+
+        // Order all Nodes correctly
+        for(DataSnapshot childNode : parentNode.getChildren()) {
+            children.add(0, childNode);
         }
-        return "Humidity:" + System.lineSeparator() + "Last update at " + sdf.format(date) + " with " + value + "%";
+
+        // Iterate children from newest to oldest
+        for (DataSnapshot childNode: children) {
+            // First node is always the newest
+            if (currentNode == null) {
+                currentNode = childNode;
+                continue;
+            }
+            // Second node is always the previous
+            if (previousNode == null) {
+                previousNode = childNode;
+                // If previous node has different value than the newest
+                if (childNode.getValue(Float.class).compareTo(currentNode.getValue(Float.class)) != 0) {
+                    // Stop searching
+                    break;
+                }
+                continue;
+            }
+            // Search for previous node with different value
+            if (previousNodeDiffVal == null){
+                // If found
+                if (childNode.getValue(Float.class).compareTo(currentNode.getValue(Float.class)) != 0) {
+                    previousNodeDiffVal = childNode;
+                    // Stop searching
+                    break;
+                }
+            }
+        }
+
+        // Build string for output depending on the findings
+        if (currentNode != null) {
+            output = output + "Last update at " + sdf.format(new Date(Long.parseLong(currentNode.getKey()))) + " with " + currentNode.getValue(Float.class) + "°C" + System.lineSeparator();
+        } else {
+            return output + "No temperature data";
+        }
+
+        if (previousNode != null) {
+            output = output + "Previous update at " + sdf.format(new Date(Long.parseLong(previousNode.getKey()))) + " with " + previousNode.getValue(Float.class) + "°C" + System.lineSeparator();
+        } else {
+            return output;
+        }
+
+        if (previousNodeDiffVal != null){
+            output = output + "Previous update with different value at " + sdf.format(new Date(Long.parseLong(previousNodeDiffVal.getKey()))) + " with " + previousNodeDiffVal.getValue(Float.class) + "°C" + System.lineSeparator();
+        } else {
+            return output;
+        }
+
+        return output;
     }
 
     /**
@@ -330,13 +361,6 @@ public class MainActivity extends AppCompatActivity {
                 writeValueInDatabase(humValue, "hum");
             }
 
-            // update the ui values
-            userInterfaceUpdateHandler.post(new Runnable() {
-                public void run() {
-                    refreshUI();
-                }
-            });
-
             // Remove the element we just read from the buffer and read the next one (if present)
             if (bufferList.size() >= 1) {
                 bufferList.remove(0);
@@ -386,5 +410,4 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     };
-
 }
