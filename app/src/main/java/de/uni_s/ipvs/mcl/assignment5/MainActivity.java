@@ -32,6 +32,7 @@ import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.database.ValueEventListener;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -99,21 +100,22 @@ public class MainActivity extends AppCompatActivity {
         // Setup Firebase-References
         DatabaseReference mRef = FirebaseDatabase.getInstance().getReference().child("teams").child("10");
         uuidSubtree = mRef.child("uuid").child("00000002-0000-0000-FDFD-FDFDFDFDFDFD");
-        tempSubtree = uuidSubtree.child("temperature");
-        humSubtree = uuidSubtree.child("humidity");
+        tempSubtree = uuidSubtree.child("00002A1C-0000-1000-8000-00805F9B34FB");
+        humSubtree = uuidSubtree.child("00002A6F-0000-1000-8000-00805F9B34FB");
         locationSubtree = mRef.child("location").child("Stuttgart");
 
         // Listener for Temp
         tempSubtree.addChildEventListener(new ChildEventListener() {
             @Override
             public void onChildAdded(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
-                String outputText = buildOutputString(dataSnapshot.getKey(),dataSnapshot.getValue(String.class), "temp");
+                Log.i("FIREBASE", "New Key: " + dataSnapshot.getKey() + ", New Value: " + String.valueOf(dataSnapshot.getValue()));
+                String outputText = buildOutputString(dataSnapshot.getKey(),dataSnapshot.getValue(Float.class), "temp");
                 temperatureText.setText(outputText);
             }
 
             @Override
             public void onChildChanged(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
-                String outputText = buildOutputString(dataSnapshot.getKey(),dataSnapshot.getValue(String.class), "temp");
+                String outputText = buildOutputString(dataSnapshot.getKey(),dataSnapshot.getValue(Float.class), "temp");
                 temperatureText.setText(outputText);
             }
 
@@ -134,16 +136,32 @@ public class MainActivity extends AppCompatActivity {
         });
 
         // Listener for Temp
+        tempSubtree.addValueEventListener(new ValueEventListener() {
+            @Override
+            public void onDataChange(@NonNull DataSnapshot dataSnapshot) {
+                for (DataSnapshot child : dataSnapshot.getChildren()) {
+                    Log.i("FIREBASE", "Key: " + child.getKey() + ", Value: " + String.valueOf(child.getValue()));
+                }
+            }
+
+            @Override
+            public void onCancelled(DatabaseError error) {
+                // Failed to read value
+                Log.w("Database", "Failed to read value.", error.toException());
+            }
+        });
+
+        // Listener for Temp
         humSubtree.addChildEventListener(new ChildEventListener() {
             @Override
             public void onChildAdded(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
-                String outputText = buildOutputString(dataSnapshot.getKey(),dataSnapshot.getValue(String.class), "hum");
+                String outputText = buildOutputString(dataSnapshot.getKey(),dataSnapshot.getValue(Float.class), "hum");
                 humidityText.setText(outputText);
             }
 
             @Override
             public void onChildChanged(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
-                String outputText = buildOutputString(dataSnapshot.getKey(),dataSnapshot.getValue(String.class), "hum");
+                String outputText = buildOutputString(dataSnapshot.getKey(),dataSnapshot.getValue(Float.class), "hum");
                 humidityText.setText(outputText);
             }
 
@@ -164,8 +182,8 @@ public class MainActivity extends AppCompatActivity {
         });
 
         // Test-Value
-        writeValueInDatabase("40°C", "temp");
-        writeValueInDatabase("89%", "hum");
+        writeValueInDatabase(23.2f, "temp");
+        writeValueInDatabase(89, "hum");
     }
 
     /**
@@ -186,7 +204,7 @@ public class MainActivity extends AppCompatActivity {
         humidityBar.setProgress(((int) humValue));
     }
 
-    private void writeValueInDatabase(String value, String sensor) {
+    private void writeValueInDatabase(float value, String sensor) {
         if (sensor.equals("temp")) {
             tempSubtree.child(String.valueOf(System.currentTimeMillis())).setValue(value);
             SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
@@ -197,13 +215,13 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private String buildOutputString(String key, String value, String sensor) {
+    private String buildOutputString(String key, float value, String sensor) {
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
         Date date = new Date(Long.parseLong(key));
         if (sensor.equals("temp")) {
-            return "Temperature:" + System.lineSeparator() + "Last update at " + sdf.format(date) + " with " + value;
+            return "Temperature:" + System.lineSeparator() + "Last update at " + sdf.format(date) + " with " + value + "°C";
         }
-        return "Humidity:" + System.lineSeparator() + "Last update at " + sdf.format(date) + " with " + value;
+        return "Humidity:" + System.lineSeparator() + "Last update at " + sdf.format(date) + " with " + value + "%";
     }
 
     /**
@@ -303,13 +321,13 @@ public class MainActivity extends AppCompatActivity {
             if (characteristic.getUuid().equals(tempUUID)) {
                 int tempSensorValue = characteristic.getIntValue(BluetoothGattCharacteristic.FORMAT_UINT16, 1);
                 tempValue = tempSensorValue / 100;
-                writeValueInDatabase(String.valueOf((tempValue) + "°C"), "temp");
+                writeValueInDatabase(tempValue, "temp");
             }
             // If data returned by humidity service
             if (characteristic.getUuid().equals(humUUID)) {
                 int humSensorValue = characteristic.getIntValue(BluetoothGattCharacteristic.FORMAT_UINT16, 0);
                 humValue = humSensorValue / 100;
-                writeValueInDatabase(String.valueOf((humValue) + "%"), "hum");
+                writeValueInDatabase(humValue, "hum");
             }
 
             // update the ui values
