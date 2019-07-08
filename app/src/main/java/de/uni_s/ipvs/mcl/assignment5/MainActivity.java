@@ -24,8 +24,12 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.ContactsContract;
 import android.util.Log;
+import android.view.View;
 import android.webkit.DateSorter;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.ProgressBar;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -48,7 +52,8 @@ public class MainActivity extends AppCompatActivity {
     // UI elements
     private TextView temperatureText;
     private TextView humidityText;
-    private ProgressBar humidityBar;
+    private TextView averageText;
+    private Spinner locationPicker;
     // Permission code
     private final int REQUEST_ENABLE_BT = Activity.RESULT_OK;
     // BT objects
@@ -78,7 +83,7 @@ public class MainActivity extends AppCompatActivity {
     private DatabaseReference humSubtree;
     // Dateformats
     SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
-    SimpleDateFormat timeFormat = new SimpleDateFormat("yyyy-MM-dd");
+    SimpleDateFormat timeFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -111,7 +116,33 @@ public class MainActivity extends AppCompatActivity {
         uuidSubtree = mRef.child("uuid").child("00000002-0000-0000-FDFD-FDFDFDFDFDFD");
         tempSubtree = uuidSubtree.child("00002A1C-0000-1000-8000-00805F9B34FB");
         humSubtree = uuidSubtree.child("00002A6F-0000-1000-8000-00805F9B34FB");
-        locationSubtree = mRef.child("location").child(location);
+        locationSubtree = mRef.child("location");
+
+        locationPicker.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                Log.i("PICKER", "ITEM SELECTED: " + parent.getSelectedItem().toString());
+                location = parent.getSelectedItem().toString();
+
+                locationSubtree.addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override
+                    public void onDataChange(@NonNull DataSnapshot dataSnapshot) {
+                        String outputText = getAvarageForLocation(dataSnapshot);
+                        averageText.setText(outputText);
+                    }
+
+                    @Override
+                    public void onCancelled(DatabaseError error) {
+                        // Failed to read value
+                        Log.w("Database", "Failed to read value.", error.toException());
+                    }
+                });
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+            }
+        });
 
         // Listener for Temp
         tempSubtree.addValueEventListener(new ValueEventListener() {
@@ -143,12 +174,10 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // Listener for Temp
-        locationSubtree.addValueEventListener(new ValueEventListener() {
+        locationSubtree.addListenerForSingleValueEvent(new ValueEventListener() {
             @Override
             public void onDataChange(@NonNull DataSnapshot dataSnapshot) {
-                String outputText = getAvarageForLocation(dataSnapshot);
-                Log.i("AVERAGE", outputText);
+                updateLocationPicker(dataSnapshot);
             }
 
             @Override
@@ -158,9 +187,20 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // Test-Value
-        writeValueInDatabase(38.2f, "temp");
-        writeValueInDatabase(74, "hum");
+        // Listener for Temp
+        locationSubtree.addValueEventListener(new ValueEventListener() {
+            @Override
+            public void onDataChange(@NonNull DataSnapshot dataSnapshot) {
+                String outputText = getAvarageForLocation(dataSnapshot);
+                averageText.setText(outputText);
+            }
+
+            @Override
+            public void onCancelled(DatabaseError error) {
+                // Failed to read value
+                Log.w("Database", "Failed to read value.", error.toException());
+            }
+        });
     }
 
     /**
@@ -169,7 +209,8 @@ public class MainActivity extends AppCompatActivity {
     private void initUI() {
         temperatureText = findViewById(R.id.temperatureText);
         humidityText = findViewById(R.id.humidityText);
-        humidityBar = findViewById(R.id.humidityBar);
+        averageText = findViewById(R.id.averageText);
+        locationPicker = findViewById(R.id.locationPicker);
     }
 
     /**
@@ -178,7 +219,16 @@ public class MainActivity extends AppCompatActivity {
     private void refreshUI() {
         temperatureText.setText("Current temperature: " + tempValue + "°C");
         humidityText.setText("Current humidity: " + humValue + "%");
-        humidityBar.setProgress(((int) humValue));
+    }
+
+    private void updateLocationPicker(DataSnapshot locationNode) {
+        List<String> locations = new ArrayList<String>();
+        for (DataSnapshot singleLocation : locationNode.getChildren()) {
+            locations.add(singleLocation.getKey());
+        }
+        ArrayAdapter<String> spinnerAdapter = new ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, locations);
+        spinnerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        locationPicker.setAdapter(spinnerAdapter);
     }
 
     /**
@@ -191,7 +241,7 @@ public class MainActivity extends AppCompatActivity {
     private void writeValueInDatabase(float value, String sensor) {
         if (sensor.equals("temp")) {
             tempSubtree.child(String.valueOf(System.currentTimeMillis())).setValue(value);
-            locationSubtree.child(dateFormat.format(new Date())).child(String.valueOf(System.currentTimeMillis())).setValue(value);
+            locationSubtree.child("Stuttgart").child(dateFormat.format(new Date())).child(String.valueOf(System.currentTimeMillis())).setValue(value);
         } else {
             humSubtree.child(String.valueOf(System.currentTimeMillis())).setValue(value);
         }
@@ -200,15 +250,16 @@ public class MainActivity extends AppCompatActivity {
     /**
      * This method returns the string that should be output to the gui.
      * This output includes the newest and previous values from any of the two sensors.
+     *
      * @param parentNode
      * @param sensorType
      * @return
      */
     private String getLastUpdate(DataSnapshot parentNode, String sensorType) {
         // Build output depending on sensor
-        String output;
-        output = sensorType.equals("temp") ? "Temperature:" : "Humidity:";
+        String output = sensorType.equals("temp") ? "Temperature:" : "Humidity:";
         output = output + System.lineSeparator();
+        String unit = sensorType.equals("temp") ? "°C" : "%";
 
         // Init Database data
         List<DataSnapshot> children = new ArrayList<DataSnapshot>();
@@ -217,12 +268,12 @@ public class MainActivity extends AppCompatActivity {
         DataSnapshot previousNodeDiffVal = null;
 
         // Order all Nodes correctly
-        for(DataSnapshot childNode : parentNode.getChildren()) {
+        for (DataSnapshot childNode : parentNode.getChildren()) {
             children.add(0, childNode);
         }
 
         // Iterate children from newest to oldest
-        for (DataSnapshot childNode: children) {
+        for (DataSnapshot childNode : children) {
             // First node is always the newest
             if (currentNode == null) {
                 currentNode = childNode;
@@ -239,7 +290,7 @@ public class MainActivity extends AppCompatActivity {
                 continue;
             }
             // Search for previous node with different value
-            if (previousNodeDiffVal == null){
+            if (previousNodeDiffVal == null) {
                 // If found
                 if (childNode.getValue(Float.class).compareTo(currentNode.getValue(Float.class)) != 0) {
                     previousNodeDiffVal = childNode;
@@ -251,19 +302,19 @@ public class MainActivity extends AppCompatActivity {
 
         // Build string for output depending on the findings
         if (currentNode != null) {
-            output = output + "Last update at " + timeFormat.format(new Date(Long.parseLong(currentNode.getKey()))) + " with " + currentNode.getValue(Float.class) + "°C" + System.lineSeparator();
+            output = output + "Last update at " + timeFormat.format(new Date(Long.parseLong(currentNode.getKey()))) + " with " + currentNode.getValue(Float.class) + unit + System.lineSeparator();
         } else {
             return output + "No temperature data";
         }
 
         if (previousNode != null) {
-            output = output + "Previous update at " + timeFormat.format(new Date(Long.parseLong(previousNode.getKey()))) + " with " + previousNode.getValue(Float.class) + "°C" + System.lineSeparator();
+            output = output + "Previous update at " + timeFormat.format(new Date(Long.parseLong(previousNode.getKey()))) + " with " + previousNode.getValue(Float.class) + unit + System.lineSeparator();
         } else {
             return output;
         }
 
-        if (previousNodeDiffVal != null){
-            output = output + "Previous update wdv at " + timeFormat.format(new Date(Long.parseLong(previousNodeDiffVal.getKey()))) + " with " + previousNodeDiffVal.getValue(Float.class) + "°C" + System.lineSeparator();
+        if (previousNodeDiffVal != null) {
+            output = output + "Previous update wdv at " + timeFormat.format(new Date(Long.parseLong(previousNodeDiffVal.getKey()))) + " with " + previousNodeDiffVal.getValue(Float.class) + unit + System.lineSeparator();
         } else {
             return output;
         }
@@ -282,15 +333,18 @@ public class MainActivity extends AppCompatActivity {
         float average = 0.0f;
 
         // Calculate avarage
-        for (DataSnapshot child : locationData.getChildren()) {
-            if (child.getKey().equals(dateFormat.format(new Date()))) {
-                for (DataSnapshot dateChild : child.getChildren()) {
-                    average += dateChild.getValue(Float.class);
+        for (DataSnapshot locationNode : locationData.getChildren()) {
+            if (locationNode.getKey().equals(location)) {
+                for (DataSnapshot child : locationNode.getChildren()) {
+                    if (child.getKey().equals(dateFormat.format(new Date()))) {
+                        for (DataSnapshot dateChild : child.getChildren()) {
+                            average += dateChild.getValue(Float.class);
+                        }
+                        average /= child.getChildrenCount();
+                        break;
+                    }
                 }
-                average /= child.getChildrenCount();
-                break;
             }
-
         }
 
         return output + average + "°C";
@@ -311,6 +365,7 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * This method is used for scanning the BT devices.
+     *
      * @param enable (Used to activate/deactivate scanning)
      */
     private void scanLeDevice(boolean enable) {
@@ -393,6 +448,7 @@ public class MainActivity extends AppCompatActivity {
             if (characteristic.getUuid().equals(tempUUID)) {
                 int tempSensorValue = characteristic.getIntValue(BluetoothGattCharacteristic.FORMAT_UINT16, 1);
                 tempValue = tempSensorValue / 100;
+                Log.i("BTSENSOR", "GOT TEMP VALUES");
                 writeValueInDatabase(tempValue, "temp");
             }
             // If data returned by humidity service

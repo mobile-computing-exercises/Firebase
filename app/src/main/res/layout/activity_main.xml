@@ -40,16 +40,30 @@
                 tools:layout_editor_absoluteX="185dp"
                 tools:layout_editor_absoluteY="12dp" />
 
-            <ProgressBar
-                android:id="@+id/humidityBar"
-                style="?android:attr/progressBarStyleHorizontal"
-                android:layout_width="200dp"
-                android:layout_height="wrap_content"
-                android:max="100"
-                android:min="0" />
         </TableRow>
 
+        <TableRow
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
 
+            <Spinner
+                android:id="@+id/locationPicker"
+                android:layout_width="260dp"
+                android:layout_height="wrap_content" />
+        </TableRow>
+
+        <TableRow
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <TextView
+                android:id="@+id/averageText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="TextView"
+                tools:layout_editor_absoluteX="185dp"
+                tools:layout_editor_absoluteY="12dp" />
+        </TableRow>
 
 
     </TableLayout>
