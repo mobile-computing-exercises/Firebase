@@ -64,6 +64,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView sensorText;
     private Spinner locationPicker;
     private Spinner sensorPicker;
+
     // Permission code
     private final int REQUEST_ENABLE_BT = Activity.RESULT_OK;
     private static final int REQUEST_CODE_ASK_MULTIPLE_PERMISSIONS = 99;

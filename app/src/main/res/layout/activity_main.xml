@@ -64,6 +64,7 @@
                 android:text="TextView"
                 tools:layout_editor_absoluteX="185dp"
                 tools:layout_editor_absoluteY="12dp" />
+
         </TableRow>
 
         <TableRow
